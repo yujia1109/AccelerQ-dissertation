@@ -63,7 +63,7 @@ Evaluation was done with two QE solver implementations. While the QCELS implemen
 
 ### Publications
 
-- OOPSLA 2025 Publication: "_Bensoussan, A., Chachkarova, E., Even Mendoza, K., Fortz, S. and Lenihan, C., is (2025). AccelerQ: Accelerating Quantum Eigensolvers With Machine Learning on Quantum Simulators [OOPSLA, Jun. 2025]" https://dl.acm.org/doi/10.1145/3763132_
+- OOPSLA 2025 Publication: "_Bensoussan, A., Chachkarova, E., Even Mendoza, K., Fortz, S. and Lenihan, C., is (2025). AccelerQ: Accelerating Quantum Eigensolvers With Machine Learning on Quantum Simulators [OOPSLA, Oct. 2025]" https://dl.acm.org/doi/10.1145/3763132_
   
 - Artifact of OOPSLA 2025 Publication: _"Bensoussan, A., Chachkarova, E., Even Mendoza, K., Fortz, S., & Lenihan, C. (2025). Artifact of AccelerQ: Accelerating Quantum Eigensolvers With Machine Learning on Quantum Simulators (OOPSLA-V4-AE) [Data set]. Zenodo. https://doi.org/10.5281/zenodo.16878135"_
 
