@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.DS_Store
+
+results/
+*.X.data
+*.Y.data
+*.npy
+
+external_data/aqc_hospital/training/
+external_data/aqc_hospital/test/
+
