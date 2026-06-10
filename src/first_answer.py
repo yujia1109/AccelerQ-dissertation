@@ -1,6 +1,7 @@
 import sys
 import csv
 import os
+import pickle
 from typing import Any
 from itertools import combinations
 from openfermion import QubitOperator, jordan_wigner
@@ -27,6 +28,7 @@ import numpy as np
 import scipy
 from scipy.sparse import coo_matrix
 from random import randint
+from build_init_param_dataset import FEATURE_COLUMNS, parse_generator
 
 from qiskit import quantum_info
 
@@ -107,16 +109,21 @@ class Solver:
         self.generator_history: list = []
         self.generator_qubit_indices_history: list = []
         self.init_mode = os.environ.get("INIT_MODE", "zero").lower()
-        if self.init_mode not in {"zero", "random", "fixed"}:
+        if self.init_mode not in {"zero", "random", "fixed", "ml"}:
             raise ValueError(f"Unknown INIT_MODE: {self.init_mode}")
 
         self.init_fixed_value = float(os.environ.get("INIT_FIXED_VALUE", "0.1"))
         self.init_random_low = float(os.environ.get("INIT_RANDOM_LOW", "-1.0"))
         self.init_random_high = float(os.environ.get("INIT_RANDOM_HIGH", "1.0"))
         self.init_rng = np.random.default_rng(int(os.environ.get("INIT_RANDOM_SEED", "0")))
+        self.init_param_model_payload = None
 
         self.results_dir = os.environ.get("RESULTS_DIR", "../results/init_baseline")
         os.makedirs(self.results_dir, exist_ok=True)
+        self.init_param_model_path = os.environ.get(
+            "INIT_PARAM_MODEL",
+            os.path.join(self.results_dir, "init_param_model.pkl"),
+        )
         self.init_log_file = os.path.join(
             self.results_dir, f"init_log_{self.n_qubits}q_{self.init_mode}.csv"
         )
@@ -128,13 +135,35 @@ class Solver:
             self.num_precise_gradient = len(pool)
 
 
-    def _choose_initial_theta(self) -> float:
+    def _load_init_param_model(self):
+        if self.init_param_model_payload is None:
+            with open(self.init_param_model_path, "rb") as model_file:
+                self.init_param_model_payload = pickle.load(model_file)
+        return self.init_param_model_payload
+
+    def _build_init_param_features(self, generator_index: int, generator: str, energy_before: float) -> np.ndarray:
+        feature_values = {
+            "n_qubits": self.n_qubits,
+            "iteration": len(self.operator_index_history),
+            "generator_index": generator_index,
+            "energy_before": energy_before,
+            "abs_energy_before": abs(energy_before),
+        }
+        feature_values.update(parse_generator(generator))
+        return np.array([[float(feature_values[column]) for column in FEATURE_COLUMNS]], dtype=float)
+
+    def _choose_initial_theta(self, generator_index: int, generator: str, energy_before: float) -> float:
         if self.init_mode == "zero":
             return 0.0
         if self.init_mode == "fixed":
             return self.init_fixed_value
         if self.init_mode == "random":
             return float(self.init_rng.uniform(self.init_random_low, self.init_random_high))
+        if self.init_mode == "ml":
+            payload = self._load_init_param_model()
+            model = payload["model"]
+            features = self._build_init_param_features(generator_index, generator, energy_before)
+            return float(model.predict(features)[0])
         raise ValueError(f"Unknown INIT_MODE: {self.init_mode}")
 
     def _append_csv_row(self, path: str, fieldnames: list[str], row: dict) -> None:
@@ -201,7 +230,9 @@ class Solver:
             + exp_php * np.sin(x[0]) ** 2
             + exp_commutator * np.cos(x[0]) * np.sin(x[0])
         )
-        initial_theta = self._choose_initial_theta()
+        generator_index = self.operator_index_history[-1]
+        generator = str(generator_qp).split("*")[1]
+        initial_theta = self._choose_initial_theta(generator_index, generator, exp_h)
         result_qsci = scipy.optimize.minimize(
             cost_e2, np.array([initial_theta]), method="BFGS", options={"disp": False, "gtol": 1e-6}
         )
