@@ -13,3 +13,15 @@ results/
 external_data/aqc_hospital/training/
 external_data/aqc_hospital/test/
 
+# Extra Hamiltonian files copied from Docker image for README reproduction
+hamiltonian/*qubits_00.data
+hamiltonian/*qubits_01.data
+hamiltonian/*qubits_02.data
+hamiltonian/*qubits_03.data
+hamiltonian/*qubits_04.data
+
+# Runtime logs and copied/trained model artifacts
+src/logger.txt
+src/logger-itr.txt
+src/model_*_pre_xgb_28.json
+
