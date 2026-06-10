@@ -1,4 +1,6 @@
 import sys
+import csv
+import os
 from typing import Any
 from itertools import combinations
 from openfermion import QubitOperator, jordan_wigner
@@ -104,12 +106,80 @@ class Solver:
         self.opt_param_value_history = []
         self.generator_history: list = []
         self.generator_qubit_indices_history: list = []
+        self.init_mode = os.environ.get("INIT_MODE", "zero").lower()
+        if self.init_mode not in {"zero", "random", "fixed"}:
+            raise ValueError(f"Unknown INIT_MODE: {self.init_mode}")
+
+        self.init_fixed_value = float(os.environ.get("INIT_FIXED_VALUE", "0.1"))
+        self.init_random_low = float(os.environ.get("INIT_RANDOM_LOW", "-1.0"))
+        self.init_random_high = float(os.environ.get("INIT_RANDOM_HIGH", "1.0"))
+        self.init_rng = np.random.default_rng(int(os.environ.get("INIT_RANDOM_SEED", "0")))
+
+        self.results_dir = os.environ.get("RESULTS_DIR", "../results/init_baseline")
+        os.makedirs(self.results_dir, exist_ok=True)
+        self.init_log_file = os.path.join(
+            self.results_dir, f"init_log_{self.n_qubits}q_{self.init_mode}.csv"
+        )
+        self.summary_log_file = os.path.join(
+            self.results_dir, f"summary_{self.n_qubits}q_{self.init_mode}.csv"
+        )
 
         if self.num_precise_gradient > len(pool):
             self.num_precise_gradient = len(pool)
 
 
-    
+    def _choose_initial_theta(self) -> float:
+        if self.init_mode == "zero":
+            return 0.0
+        if self.init_mode == "fixed":
+            return self.init_fixed_value
+        if self.init_mode == "random":
+            return float(self.init_rng.uniform(self.init_random_low, self.init_random_high))
+        raise ValueError(f"Unknown INIT_MODE: {self.init_mode}")
+
+    def _append_csv_row(self, path: str, fieldnames: list[str], row: dict) -> None:
+        file_exists = os.path.exists(path) and os.path.getsize(path) > 0
+        with open(path, "a", newline="") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(row)
+
+    def _write_init_log(self, row: dict) -> None:
+        fieldnames = [
+            "n_qubits",
+            "init_mode",
+            "iteration",
+            "generator_index",
+            "generator",
+            "x0",
+            "theta_opt",
+            "optimizer_nit",
+            "optimizer_nfev",
+            "optimizer_success",
+            "optimizer_objective",
+            "optimizer_retry_used",
+            "energy_before",
+            "energy_after",
+            "energy_delta",
+            "sampling_shots",
+            "is_alert",
+            "active_param_count",
+            "basis_size",
+        ]
+        self._append_csv_row(self.init_log_file, fieldnames, row)
+
+    def _write_summary_log(self, row: dict) -> None:
+        fieldnames = [
+            "n_qubits",
+            "init_mode",
+            "final_energy",
+            "best_energy",
+            "iterations_completed",
+            "active_param_count",
+        ]
+        self._append_csv_row(self.summary_log_file, fieldnames, row)
+
     # Modify ADD VQE
     def _get_optimized_parameter(
         self, vec_qsci: np.ndarray, comp_basis: list[ComputationalBasisState]
@@ -131,20 +201,31 @@ class Solver:
             + exp_php * np.sin(x[0]) ** 2
             + exp_commutator * np.cos(x[0]) * np.sin(x[0])
         )
+        initial_theta = self._choose_initial_theta()
         result_qsci = scipy.optimize.minimize(
-            cost_e2, np.array([0.0]), method="BFGS", options={"disp": False, "gtol": 1e-6}
+            cost_e2, np.array([initial_theta]), method="BFGS", options={"disp": False, "gtol": 1e-6}
         )
+        retry_used = False
         try:
             assert result_qsci.success
         except:
             print("try optimization again...")
+            retry_used = True
             result_qsci = scipy.optimize.minimize(
                 cost_e2, np.array([0.1]), method="BFGS", options={"disp": False, "gtol": 1e-6}
             )
             if not result_qsci.success:
                 print("*** Optimization failed, but we continue calculation. ***")
-        print(f"θ: {result_qsci.x}")
-        return float(result_qsci.x)
+        print(f"θ init ({self.init_mode}): [{initial_theta}], optimized: {result_qsci.x}")
+        return (
+            float(result_qsci.x[0]),
+            float(initial_theta),
+            int(getattr(result_qsci, "nit", -1)),
+            int(getattr(result_qsci, "nfev", -1)),
+            bool(result_qsci.success),
+            float(result_qsci.fun),
+            retry_used,
+        )
 
     def run(self) -> float:
         vec_qsci, val_qsci = diagonalize_effective_ham(self.hamiltonian, self.comp_basis)
@@ -212,7 +293,15 @@ class Solver:
             # add new generator to ansatz
             new_param_name = f"theta_{itr}"
             circuit_qsci = self.pauli_rotation_circuit_qsci.add_new_gates(new_pauli_str, new_coeff, new_param_name)
-            new_param_value = self._get_optimized_parameter(vec_qsci, self.comp_basis)
+            (
+                new_param_value,
+                init_theta,
+                opt_nit,
+                opt_nfev,
+                opt_success,
+                opt_objective,
+                opt_retry_used,
+            ) = self._get_optimized_parameter(vec_qsci, self.comp_basis)
             if np.isclose(new_param_value, 0.):
                 self.ignored_gen_inx.append(largest_index)
                 print(f"index {largest_index} added to ignored list")
@@ -270,6 +359,29 @@ class Solver:
             self.qsci_energy_history.append(val_qsci)
             # print(f"basis selected: {[bin(b.bits)[2:].zfill(self.n_qubits) for b in self.comp_basis]}")
             print(f"QSCI energy: {val_qsci}, (new generator {new_pauli_str})")
+            energy_before = self.qsci_energy_history[-2]
+            energy_after = self.qsci_energy_history[-1]
+            self._write_init_log({
+                "n_qubits": self.n_qubits,
+                "init_mode": self.init_mode,
+                "iteration": itr,
+                "generator_index": largest_index,
+                "generator": new_pauli_str,
+                "x0": init_theta,
+                "theta_opt": new_param_value,
+                "optimizer_nit": opt_nit,
+                "optimizer_nfev": opt_nfev,
+                "optimizer_success": opt_success,
+                "optimizer_objective": opt_objective,
+                "optimizer_retry_used": opt_retry_used,
+                "energy_before": energy_before,
+                "energy_after": energy_after,
+                "energy_delta": energy_after - energy_before,
+                "sampling_shots": sampling_shots,
+                "is_alert": is_alert,
+                "active_param_count": len(self.param_values),
+                "basis_size": len(self.comp_basis),
+            })
 
             # terminate condition
             if (
@@ -286,7 +398,17 @@ class Solver:
             if itr % self.reset_ignored_inx_mode == 0:
                 print(f"ignored list emptied: {self.ignored_gen_inx} -> []")
                 self.ignored_gen_inx = []
-        return min(self.qsci_energy_history)
+        final_energy = self.qsci_energy_history[-1]
+        best_energy = min(self.qsci_energy_history)
+        self._write_summary_log({
+            "n_qubits": self.n_qubits,
+            "init_mode": self.init_mode,
+            "final_energy": final_energy,
+            "best_energy": best_energy,
+            "iterations_completed": len(self.opt_param_value_history),
+            "active_param_count": len(self.param_values),
+        })
+        return best_energy
 
 
 class PauliRotationCircuit:

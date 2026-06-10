@@ -25,3 +25,4 @@ src/logger.txt
 src/logger-itr.txt
 src/model_*_pre_xgb_28.json
 
+.idea/
