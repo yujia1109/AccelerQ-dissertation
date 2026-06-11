@@ -35,17 +35,29 @@ def compare_matched_runs(results_dirs: list[str], output_path: str) -> str:
         if not all(mode in mode_rows for mode in modes):
             continue
 
-        best_mode = min(modes, key=lambda mode: float(mode_rows[mode]["best_energy"]))
-        lowest_iterations_mode = min(modes, key=lambda mode: int(mode_rows[mode]["iterations_completed"]))
-        lowest_params_mode = min(modes, key=lambda mode: int(mode_rows[mode]["active_param_count"]))
+        best_energy = min(float(mode_rows[mode]["best_energy"]) for mode in modes)
+        lowest_iterations = min(int(mode_rows[mode]["iterations_completed"]) for mode in modes)
+        lowest_params = min(int(mode_rows[mode]["active_param_count"]) for mode in modes)
+        best_modes = [
+            mode for mode in modes
+            if float(mode_rows[mode]["best_energy"]) == best_energy
+        ]
+        lowest_iteration_modes = [
+            mode for mode in modes
+            if int(mode_rows[mode]["iterations_completed"]) == lowest_iterations
+        ]
+        lowest_param_modes = [
+            mode for mode in modes
+            if int(mode_rows[mode]["active_param_count"]) == lowest_params
+        ]
 
         out = {
             "run_prefix": run_prefix,
             "n_qubits": n_qubits,
             "run_id": run_id,
-            "best_energy_mode": best_mode,
-            "lowest_iterations_mode": lowest_iterations_mode,
-            "lowest_params_mode": lowest_params_mode,
+            "best_energy_modes": ";".join(best_modes),
+            "lowest_iterations_modes": ";".join(lowest_iteration_modes),
+            "lowest_params_modes": ";".join(lowest_param_modes),
         }
 
         for mode in modes:
@@ -60,9 +72,9 @@ def compare_matched_runs(results_dirs: list[str], output_path: str) -> str:
         "run_prefix",
         "n_qubits",
         "run_id",
-        "best_energy_mode",
-        "lowest_iterations_mode",
-        "lowest_params_mode",
+        "best_energy_modes",
+        "lowest_iterations_modes",
+        "lowest_params_modes",
     ]
     for mode in modes:
         fieldnames.extend([
@@ -80,10 +92,11 @@ def compare_matched_runs(results_dirs: list[str], output_path: str) -> str:
 
     wins = defaultdict(int)
     for row in output_rows:
-        wins[row["best_energy_mode"]] += 1
+        for mode in row["best_energy_modes"].split(";"):
+            wins[mode] += 1
 
     print(f"Wrote {len(output_rows)} matched rows to {output_path}")
-    print("Best-energy wins on matched runs:")
+    print("Best-energy wins/ties on matched runs:")
     for mode in modes:
         print(f"  {mode}: {wins[mode]}")
 
