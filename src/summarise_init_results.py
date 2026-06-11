@@ -28,10 +28,12 @@ def summarise(results_dir):
         final_energy = [float(row["final_energy"]) for row in data]
         iterations = [int(row["iterations_completed"]) for row in data]
         active_params = [int(row["active_param_count"]) for row in data]
+        prefixes = sorted({row.get("run_prefix", "unknown") for row in data})
 
         rows.append({
             "n_qubits": n_qubits,
             "init_mode": init_mode,
+            "run_prefixes": ";".join(prefixes),
             "runs": len(data),
             "mean_best_energy": mean(best_energy),
             "min_best_energy": min(best_energy),
@@ -44,6 +46,7 @@ def summarise(results_dir):
     fieldnames = [
         "n_qubits",
         "init_mode",
+        "run_prefixes",
         "runs",
         "mean_best_energy",
         "min_best_energy",

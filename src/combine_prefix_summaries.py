@@ -1,34 +1,38 @@
 import csv
-import glob
 import os
 
 
-def read_summary(path: str) -> list[dict]:
+def read_rows(path: str) -> list[dict]:
     with open(path, newline="") as csv_file:
         return list(csv.DictReader(csv_file))
 
 
-def combine_summaries(output_path: str, input_paths: list[str]) -> None:
+def combine_prefix_summaries(output_path: str, input_paths: list[str]) -> str:
     rows = []
     seen = set()
 
     for path in input_paths:
-        for row in read_summary(path):
-            key = (row["n_qubits"], row["init_mode"])
+        for row in read_rows(path):
+            key = (row["run_prefix"], row["n_qubits"], row["init_mode"])
             if key in seen:
                 continue
             seen.add(key)
-            row.setdefault("run_prefixes", "unknown")
             row["source_summary"] = path
             rows.append(row)
 
-    rows.sort(key=lambda row: (int(row["n_qubits"].replace("q", "")), row["init_mode"]))
+    rows.sort(key=lambda row: (
+        row["run_prefix"],
+        int(row["n_qubits"].replace("q", "")),
+        row["init_mode"],
+    ))
 
     fieldnames = [
+        "run_prefix",
         "n_qubits",
         "init_mode",
-        "run_prefixes",
-        "runs",
+        "successful_runs",
+        "expected_runs",
+        "success_rate",
         "mean_best_energy",
         "min_best_energy",
         "mean_final_energy",
@@ -46,10 +50,10 @@ def combine_summaries(output_path: str, input_paths: list[str]) -> None:
     print(f"Wrote {len(rows)} rows to {output_path}")
     for row in rows:
         print(
-            row["n_qubits"],
+            row["run_prefix"],
             row["init_mode"],
-            "prefixes=",
-            row["run_prefixes"],
+            "success=",
+            f"{row['successful_runs']}/{row['expected_runs']}",
             "best=",
             row["mean_best_energy"],
             "iters=",
@@ -57,22 +61,14 @@ def combine_summaries(output_path: str, input_paths: list[str]) -> None:
             "params=",
             row["mean_active_params"],
         )
+    return output_path
 
 
 if __name__ == "__main__":
-    default_results_root = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "../results")
-    )
-    results_root = os.environ.get("RESULTS_ROOT", default_results_root)
-    output_path = os.environ.get(
-        "OUTPUT_PATH",
-        os.path.join(results_root, "four_way_summary.csv"),
-    )
-    input_paths = os.environ.get("SUMMARY_FILES")
+    input_paths_env = os.environ.get("PREFIX_SUMMARY_FILES")
+    if not input_paths_env:
+        raise ValueError("Set PREFIX_SUMMARY_FILES to colon-separated prefix_summary.csv files.")
 
-    if input_paths:
-        summary_files = input_paths.split(":")
-    else:
-        summary_files = sorted(glob.glob(os.path.join(results_root, "init_*", "combined_summary.csv")))
-
-    combine_summaries(output_path, summary_files)
+    output_path = os.environ.get("OUTPUT_PATH", "../results/holdout_prefix_four_way.csv")
+    input_paths = [path for path in input_paths_env.split(":") if path]
+    combine_prefix_summaries(output_path, input_paths)
