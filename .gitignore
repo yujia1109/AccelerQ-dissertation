@@ -6,6 +6,7 @@ __pycache__/
 .DS_Store
 
 results/
+data/
 *.X.data
 *.Y.data
 *.npy
@@ -19,6 +20,8 @@ hamiltonian/*qubits_01.data
 hamiltonian/*qubits_02.data
 hamiltonian/*qubits_03.data
 hamiltonian/*qubits_04.data
+hamiltonian/*qubits_5?.data
+hamiltonian/hospital_*_manifest.csv
 
 # Runtime logs and copied/trained model artifacts
 src/logger.txt
