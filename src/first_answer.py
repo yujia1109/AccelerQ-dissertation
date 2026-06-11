@@ -342,16 +342,21 @@ class Solver:
             if np.isclose(new_param_value, 0.):
                 self.ignored_gen_inx.append(largest_index)
                 print(f"index {largest_index} added to ignored list")
+                if not self.pauli_rotation_circuit_qsci.fusion_mem:
+                    self.pauli_rotation_circuit_qsci.delete_newest_gate()
+                self.operator_index_history.pop()
+                self.gradient_history.pop()
+                self.generator_history.pop()
+                print(f"skip zero-angle generator {new_pauli_str}")
+                continue
+
             self.opt_param_value_history.append(new_param_value)
             if self.pauli_rotation_circuit_qsci.fusion_mem:
                 self.param_values[
                     self.pauli_rotation_circuit_qsci.fusion_mem[0]
                 ] += new_param_value
             else:
-                if np.isclose(0.0, new_param_value):
-                    circuit_qsci = self.pauli_rotation_circuit_qsci.delete_newest_gate()
-                else:
-                    self.param_values.append(new_param_value)
+                self.param_values.append(new_param_value)
             try:
                 new_gen_indices = sorted(circuit_qsci.gates[-1].target_indices)
             except IndexError:
