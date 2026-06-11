@@ -33,6 +33,7 @@ def combine_prefix_summaries(output_path: str, input_paths: list[str]) -> str:
         "successful_runs",
         "expected_runs",
         "success_rate",
+        "successful_run_ids",
         "mean_best_energy",
         "min_best_energy",
         "mean_final_energy",

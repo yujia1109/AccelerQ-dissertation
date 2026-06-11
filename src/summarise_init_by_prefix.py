@@ -31,6 +31,7 @@ def summarise_by_prefix(results_dir: str, expected_runs: int) -> str:
         "successful_runs",
         "expected_runs",
         "success_rate",
+        "successful_run_ids",
         "mean_best_energy",
         "min_best_energy",
         "mean_final_energy",
@@ -44,6 +45,7 @@ def summarise_by_prefix(results_dir: str, expected_runs: int) -> str:
         final_energy = [float(row["final_energy"]) for row in data]
         iterations = [int(row["iterations_completed"]) for row in data]
         active_params = [int(row["active_param_count"]) for row in data]
+        run_ids = sorted({row.get("run_id", "unknown") for row in data}, key=lambda value: int(value) if value.isdigit() else -1)
         successful_runs = len(data)
 
         rows.append({
@@ -53,6 +55,7 @@ def summarise_by_prefix(results_dir: str, expected_runs: int) -> str:
             "successful_runs": successful_runs,
             "expected_runs": expected_runs,
             "success_rate": successful_runs / expected_runs if expected_runs else float("nan"),
+            "successful_run_ids": ";".join(run_ids),
             "mean_best_energy": mean(best_energy),
             "min_best_energy": min(best_energy),
             "mean_final_energy": mean(final_energy),

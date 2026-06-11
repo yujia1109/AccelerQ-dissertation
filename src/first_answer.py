@@ -113,6 +113,7 @@ class Solver:
             raise ValueError(f"Unknown INIT_MODE: {self.init_mode}")
 
         self.run_prefix = os.environ.get("RUN_PREFIX", "unknown")
+        self.run_id = os.environ.get("RUN_ID", "unknown")
         self.init_fixed_value = float(os.environ.get("INIT_FIXED_VALUE", "0.1"))
         self.init_random_low = float(os.environ.get("INIT_RANDOM_LOW", "-1.0"))
         self.init_random_high = float(os.environ.get("INIT_RANDOM_HIGH", "1.0"))
@@ -178,6 +179,7 @@ class Solver:
     def _write_init_log(self, row: dict) -> None:
         fieldnames = [
             "run_prefix",
+            "run_id",
             "n_qubits",
             "init_mode",
             "iteration",
@@ -203,6 +205,7 @@ class Solver:
     def _write_summary_log(self, row: dict) -> None:
         fieldnames = [
             "run_prefix",
+            "run_id",
             "n_qubits",
             "init_mode",
             "final_energy",
@@ -398,6 +401,7 @@ class Solver:
             self._write_init_log({
                 "n_qubits": self.n_qubits,
                 "run_prefix": self.run_prefix,
+                "run_id": self.run_id,
                 "init_mode": self.init_mode,
                 "iteration": itr,
                 "generator_index": largest_index,
@@ -438,6 +442,7 @@ class Solver:
         self._write_summary_log({
             "n_qubits": self.n_qubits,
             "run_prefix": self.run_prefix,
+            "run_id": self.run_id,
             "init_mode": self.init_mode,
             "final_energy": final_energy,
             "best_energy": best_energy,

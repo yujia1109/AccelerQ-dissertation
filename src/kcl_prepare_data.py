@@ -48,6 +48,8 @@ def miner(n_qubits, ham, repeats, timeout, file_X, file_Y, generator_caller, wra
     # Add some random value with the wrapper
     for i in range(0, repeats):  # Loop from 1 to 1000
         print_to_file(">>>> Collecting data with qubits "+str(n_qubits) + " iteration " + str(i))
+        previous_run_id = os.environ.get("RUN_ID")
+        os.environ["RUN_ID"] = str(i)
         x_vec_params = generator_caller(i, n_qubits)
         y_vec=0
 
@@ -71,6 +73,11 @@ def miner(n_qubits, ham, repeats, timeout, file_X, file_Y, generator_caller, wra
                 y_vec=0.0
                 print(e)
                 print_to_file("Y is 0 due to exception")
+        finally:
+            if previous_run_id is None:
+                os.environ.pop("RUN_ID", None)
+            else:
+                os.environ["RUN_ID"] = previous_run_id
 
         print_to_file(">> End Collecting Data Samples, y:= " + str(y_vec))
         
