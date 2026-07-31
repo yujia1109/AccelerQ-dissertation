@@ -1,0 +1,4 @@
+event_id,run_prefix,run_id,source_init_mode,event_index,generator,source_x0,a,b,gamma,n_qubits,iteration,generator_index,energy_before,abs_energy_before,term_count,x_count,y_count,z_count,min_qubit,max_qubit,qubit_span,index_sum,index_mean,even_index_count,odd_index_count
+12qubits_00|0|zero|0001,12qubits_00,0,zero,1,X0 Y1,0.0,-1.0,-1.3,0.2,12,1,3,-1.0,1.0,2,1,1,0,0,1,1,1,0.5,1,1
+24qubits_06|0|ml|0002,24qubits_06,0,ml,2,X4 Y9,-0.2,-8.0,-8.4,0.3,24,20,17,-8.0,8.0,2,1,1,0,4,9,5,13,6.5,1,1
+24qubits_08|0|random|0003,24qubits_08,0,random,3,Y2 X7 Z8,0.4,-6.0,-5.9,-0.1,24,50,29,-6.0,6.0,3,1,1,1,2,8,6,17,5.666666666666667,2,1

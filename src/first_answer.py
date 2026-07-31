@@ -28,6 +28,7 @@ import numpy as np
 import scipy
 from scipy.sparse import coo_matrix
 from random import randint
+from analytic_scalar_baseline import analytic_scalar_minimum, minimize_scalar_bfgs
 from build_init_param_dataset import FEATURE_COLUMNS, parse_generator
 
 from qiskit import quantum_info
@@ -109,7 +110,7 @@ class Solver:
         self.generator_history: list = []
         self.generator_qubit_indices_history: list = []
         self.init_mode = os.environ.get("INIT_MODE", "zero").lower()
-        if self.init_mode not in {"zero", "random", "fixed", "ml"}:
+        if self.init_mode not in {"zero", "random", "fixed", "ml", "analytic"}:
             raise ValueError(f"Unknown INIT_MODE: {self.init_mode}")
 
         self.run_prefix = os.environ.get("RUN_PREFIX", "unknown")
@@ -119,9 +120,14 @@ class Solver:
         self.init_random_high = float(os.environ.get("INIT_RANDOM_HIGH", "1.0"))
         self.init_rng = np.random.default_rng(int(os.environ.get("INIT_RANDOM_SEED", "0")))
         self.init_param_model_payload = None
+        self.scalar_replay_capture_file = os.environ.get("SCALAR_REPLAY_CAPTURE_FILE", "")
+        self.scalar_replay_event_index = 0
 
         self.results_dir = os.environ.get("RESULTS_DIR", "../results/init_baseline")
         os.makedirs(self.results_dir, exist_ok=True)
+        if self.scalar_replay_capture_file:
+            capture_parent = os.path.dirname(os.path.abspath(self.scalar_replay_capture_file))
+            os.makedirs(capture_parent, exist_ok=True)
         self.init_param_model_path = os.environ.get(
             "INIT_PARAM_MODEL",
             os.path.join(self.results_dir, "init_param_model.pkl"),
@@ -143,7 +149,9 @@ class Solver:
                 self.init_param_model_payload = pickle.load(model_file)
         return self.init_param_model_payload
 
-    def _build_init_param_features(self, generator_index: int, generator: str, energy_before: float) -> np.ndarray:
+    def _build_init_param_feature_values(
+        self, generator_index: int, generator: str, energy_before: float
+    ) -> dict[str, float]:
         feature_values = {
             "n_qubits": self.n_qubits,
             "iteration": len(self.operator_index_history),
@@ -152,9 +160,22 @@ class Solver:
             "abs_energy_before": abs(energy_before),
         }
         feature_values.update(parse_generator(generator))
+        return feature_values
+
+    def _build_init_param_features(self, generator_index: int, generator: str, energy_before: float) -> np.ndarray:
+        feature_values = self._build_init_param_feature_values(
+            generator_index, generator, energy_before
+        )
         return np.array([[float(feature_values[column]) for column in FEATURE_COLUMNS]], dtype=float)
 
-    def _choose_initial_theta(self, generator_index: int, generator: str, energy_before: float) -> float:
+    def _choose_initial_theta(
+        self,
+        generator_index: int,
+        generator: str,
+        energy_before: float,
+        conjugated_energy: float,
+        commutator_term: float,
+    ) -> float:
         if self.init_mode == "zero":
             return 0.0
         if self.init_mode == "fixed":
@@ -166,6 +187,12 @@ class Solver:
             model = payload["model"]
             features = self._build_init_param_features(generator_index, generator, energy_before)
             return float(model.predict(features)[0])
+        if self.init_mode == "analytic":
+            return analytic_scalar_minimum(
+                energy_before,
+                conjugated_energy,
+                commutator_term,
+            ).theta
         raise ValueError(f"Unknown INIT_MODE: {self.init_mode}")
 
     def _append_csv_row(self, path: str, fieldnames: list[str], row: dict) -> None:
@@ -191,6 +218,7 @@ class Solver:
             "optimizer_nfev",
             "optimizer_success",
             "optimizer_objective",
+            "optimizer_residual",
             "optimizer_retry_used",
             "energy_before",
             "energy_after",
@@ -215,10 +243,28 @@ class Solver:
         ]
         self._append_csv_row(self.summary_log_file, fieldnames, row)
 
+    def _write_scalar_replay_event(self, row: dict) -> None:
+        if not self.scalar_replay_capture_file:
+            return
+        fieldnames = [
+            "event_id",
+            "run_prefix",
+            "run_id",
+            "source_init_mode",
+            "event_index",
+            "generator",
+            "source_x0",
+            "a",
+            "b",
+            "gamma",
+            *FEATURE_COLUMNS,
+        ]
+        self._append_csv_row(self.scalar_replay_capture_file, fieldnames, row)
+
     # Modify ADD VQE
     def _get_optimized_parameter(
         self, vec_qsci: np.ndarray, comp_basis: list[ComputationalBasisState]
-    ) -> float:
+    ) -> Tuple[float, float, int, int, bool, float, float, bool]:
         generator_qp = self.pool[self.operator_index_history[-1]]
         ham_sparse = generate_truncated_hamiltonian(self.hamiltonian, comp_basis)
         commutator_sparse = generate_truncated_hamiltonian(
@@ -231,37 +277,58 @@ class Solver:
         php = generator_qp * self.hamiltonian * generator_qp
         php_sparse = generate_truncated_hamiltonian(php, comp_basis)
         exp_php = (vec_qsci.T.conj() @ php_sparse @ vec_qsci).item().real
-        cost_e2 = (
-            lambda x: exp_h * np.cos(x[0]) ** 2
-            + exp_php * np.sin(x[0]) ** 2
-            + exp_commutator * np.cos(x[0]) * np.sin(x[0])
-        )
         generator_index = self.operator_index_history[-1]
         generator = str(generator_qp).split("*")[1]
-        initial_theta = self._choose_initial_theta(generator_index, generator, exp_h)
-        result_qsci = scipy.optimize.minimize(
-            cost_e2, np.array([initial_theta]), method="BFGS", options={"disp": False, "gtol": 1e-6}
+        initial_theta = self._choose_initial_theta(
+            generator_index,
+            generator,
+            exp_h,
+            exp_php,
+            exp_commutator,
         )
-        retry_used = False
-        try:
-            assert result_qsci.success
-        except:
-            print("try optimization again...")
-            retry_used = True
-            result_qsci = scipy.optimize.minimize(
-                cost_e2, np.array([0.1]), method="BFGS", options={"disp": False, "gtol": 1e-6}
+        if self.scalar_replay_capture_file:
+            self.scalar_replay_event_index += 1
+            feature_values = self._build_init_param_feature_values(
+                generator_index, generator, exp_h
             )
-            if not result_qsci.success:
-                print("*** Optimization failed, but we continue calculation. ***")
-        print(f"θ init ({self.init_mode}): [{initial_theta}], optimized: {result_qsci.x}")
+            event_id = (
+                f"{self.run_prefix}|{self.run_id}|{self.init_mode}|"
+                f"{self.scalar_replay_event_index:04d}"
+            )
+            replay_row = {
+                "event_id": event_id,
+                "run_prefix": self.run_prefix,
+                "run_id": self.run_id,
+                "source_init_mode": self.init_mode,
+                "event_index": self.scalar_replay_event_index,
+                "generator": generator,
+                "source_x0": initial_theta,
+                "a": exp_h,
+                "b": exp_php,
+                "gamma": exp_commutator,
+            }
+            replay_row.update(feature_values)
+            self._write_scalar_replay_event(replay_row)
+        result_qsci = minimize_scalar_bfgs(
+            exp_h,
+            exp_php,
+            exp_commutator,
+            initial_theta,
+        )
+        if result_qsci.retry_used:
+            print("try optimization again...")
+        if not result_qsci.success:
+            print("*** Optimization failed, but we continue calculation. ***")
+        print(f"θ init ({self.init_mode}): [{initial_theta}], optimized: [{result_qsci.theta}]")
         return (
-            float(result_qsci.x[0]),
+            result_qsci.theta,
             float(initial_theta),
-            int(getattr(result_qsci, "nit", -1)),
-            int(getattr(result_qsci, "nfev", -1)),
-            bool(result_qsci.success),
-            float(result_qsci.fun),
-            retry_used,
+            result_qsci.nit,
+            result_qsci.nfev,
+            result_qsci.success,
+            result_qsci.energy,
+            result_qsci.residual,
+            result_qsci.retry_used,
         )
 
     def run(self) -> float:
@@ -337,6 +404,7 @@ class Solver:
                 opt_nfev,
                 opt_success,
                 opt_objective,
+                opt_residual,
                 opt_retry_used,
             ) = self._get_optimized_parameter(vec_qsci, self.comp_basis)
             if np.isclose(new_param_value, 0.):
@@ -417,6 +485,7 @@ class Solver:
                 "optimizer_nfev": opt_nfev,
                 "optimizer_success": opt_success,
                 "optimizer_objective": opt_objective,
+                "optimizer_residual": opt_residual,
                 "optimizer_retry_used": opt_retry_used,
                 "energy_before": energy_before,
                 "energy_after": energy_after,

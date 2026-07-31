@@ -14,5 +14,5 @@ numpy== 1.23.5
 juliacall >= 0.9.12
 
 # Added packages
-scikit-learn>=1.4.2 
+scikit-learn==1.7.0
 quri_parts-qulacs

@@ -21,7 +21,7 @@ trap cleanup EXIT
 cd "$SCRIPT_DIR"
 mkdir -p "$RESULTS_DIR"
 
-for mode in zero fixed random; do
+for mode in zero fixed random analytic; do
   echo "============================================================"
   echo "Running INIT_MODE=$mode"
   echo "Writing results to $RESULTS_DIR"

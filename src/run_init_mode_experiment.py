@@ -19,7 +19,7 @@ def run_experiment() -> None:
     np.set_printoptions(precision=17)
 
     prefixes = parse_csv_env("PREFIXES", "04qubits_05,06qubits_05,08qubits_05")
-    modes = parse_csv_env("INIT_MODES", "zero,fixed,random")
+    modes = parse_csv_env("INIT_MODES", "zero,fixed,random,analytic")
     results_dir = os.environ.get("RESULTS_DIR", "../results/init_mode_experiment")
     hamiltonian_dir = os.environ.get("HAMILTONIAN_DIR", "../hamiltonian/")
     repeats = int(os.environ.get("REPEATS", "10"))
