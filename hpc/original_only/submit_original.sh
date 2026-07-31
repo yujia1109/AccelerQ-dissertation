@@ -19,26 +19,8 @@ MEMORY="${MEMORY:-64G}"
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-}"
 SBATCH_ARGS="${SBATCH_ARGS:-}"
 EXPECTED_SKLEARN_VERSION="${EXPECTED_SKLEARN_VERSION:-1.7.0}"
-
-runtime_python=(python3)
-if [[ -n "$CONTAINER_IMAGE" ]]; then
-  if command -v apptainer >/dev/null 2>&1; then
-    container_runtime="apptainer"
-  elif command -v singularity >/dev/null 2>&1; then
-    container_runtime="singularity"
-  else
-    echo "Neither apptainer nor singularity is available" >&2
-    exit 127
-  fi
-  runtime_python=("$container_runtime" exec "$CONTAINER_IMAGE" python3)
-fi
-
-actual_sklearn_version="$("${runtime_python[@]}" -c 'import sklearn; print(sklearn.__version__)')"
-if [[ "$actual_sklearn_version" != "$EXPECTED_SKLEARN_VERSION" ]]; then
-  echo "Expected scikit-learn $EXPECTED_SKLEARN_VERSION, got $actual_sklearn_version" >&2
-  exit 1
-fi
-echo "Runtime scikit-learn: $actual_sklearn_version"
+PREFLIGHT_TIME="${PREFLIGHT_TIME:-00:10:00}"
+PREFLIGHT_MEMORY="${PREFLIGHT_MEMORY:-2G}"
 
 mkdir -p "$RESULTS_DIR/slurm"
 
@@ -74,8 +56,22 @@ echo "Experiment: $EXPERIMENT_ID"
 echo "Results:    $RESULTS_DIR"
 echo "Manifest:   $TASK_MANIFEST"
 
-sbatch \
+preflight_job_id="$(sbatch --parsable \
+  --job-name="acc-preflight" \
+  --time="$PREFLIGHT_TIME" \
+  --cpus-per-task=1 \
+  --mem="$PREFLIGHT_MEMORY" \
+  --output="$RESULTS_DIR/slurm/preflight_%j.out" \
+  --error="$RESULTS_DIR/slurm/preflight_%j.err" \
+  "${extra_sbatch_args[@]}" \
+  "$SCRIPT_DIR/runtime_preflight.sbatch" \
+  "$REPO_ROOT" "$MODEL_PATH" "$CONTAINER_IMAGE" \
+  "$EXPECTED_SKLEARN_VERSION")"
+preflight_job_id="${preflight_job_id%%;*}"
+
+array_job_id="$(sbatch --parsable \
   --job-name="acc-orig" \
+  --dependency="afterok:$preflight_job_id" \
   --array="0-$((TASK_COUNT - 1))%$MAX_CONCURRENT" \
   --time="$SLURM_TIME" \
   --cpus-per-task="$CPUS_PER_TASK" \
@@ -84,7 +80,12 @@ sbatch \
   --error="$RESULTS_DIR/slurm/%A_%a.err" \
   "${extra_sbatch_args[@]}" \
   "$SCRIPT_DIR/original_array.sbatch" \
-  "$REPO_ROOT" "$TASK_MANIFEST" "$RESULTS_DIR" "$MODEL_PATH" "$CONTAINER_IMAGE"
+  "$REPO_ROOT" "$TASK_MANIFEST" "$RESULTS_DIR" "$MODEL_PATH" \
+  "$CONTAINER_IMAGE")"
+array_job_id="${array_job_id%%;*}"
+
+echo "Runtime preflight job: $preflight_job_id"
+echo "Experiment array job:  $array_job_id (afterok:$preflight_job_id)"
 
 echo
 echo "After the array finishes, collect results with:"

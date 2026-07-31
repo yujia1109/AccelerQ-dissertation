@@ -21,11 +21,17 @@ Seeds are deterministic and independent between blocks.
 
 ## 1. Runtime preflight
 
-The submission script refuses to run unless the selected runtime has
-scikit-learn 1.7.0. You can also check the container directly:
+The submission script first schedules a small runtime-preflight job on a compute
+node. It requires scikit-learn 1.7.0 and successfully loads the frozen model;
+the experiment array has an `afterok` dependency and cannot start if preflight
+fails. This supports clusters such as KCL CREATE, where Singularity is only
+available on compute nodes.
+
+You can also check the container interactively on CREATE:
 
 ```bash
-apptainer exec /path/to/accelerq.sif \
+srun --partition=cpu --account=YOUR_ACCOUNT --time=00:10:00 --mem=2G \
+  singularity exec /path/to/accelerq.sif \
   python3 -c "import sklearn; print(sklearn.__version__)"
 ```
 
@@ -124,6 +130,8 @@ MAX_CONCURRENT    array concurrency cap; default 6
 CONTAINER_IMAGE   optional Apptainer/Singularity image
 SBATCH_ARGS       partition/account/QoS flags
 EXPECTED_SKLEARN_VERSION  required runtime version; default 1.7.0
+PREFLIGHT_TIME    runtime-preflight wall time; default 00:10:00
+PREFLIGHT_MEMORY  runtime-preflight memory; default 2G
 ```
 
 Do not change `PREFIXES`, `MODES`, seeds, or timeouts after the task manifest is
