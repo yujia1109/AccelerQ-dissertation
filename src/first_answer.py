@@ -30,6 +30,7 @@ from scipy.sparse import coo_matrix
 from random import randint
 from analytic_scalar_baseline import analytic_scalar_minimum, minimize_scalar_bfgs
 from build_init_param_dataset import FEATURE_COLUMNS, parse_generator
+from operator_selection import select_precise_gradient_index
 
 from qiskit import quantum_info
 
@@ -240,6 +241,7 @@ class Solver:
             "best_energy",
             "iterations_completed",
             "active_param_count",
+            "termination_reason",
         ]
         self._append_csv_row(self.summary_log_file, fieldnames, row)
 
@@ -334,6 +336,7 @@ class Solver:
     def run(self) -> float:
         vec_qsci, val_qsci = diagonalize_effective_ham(self.hamiltonian, self.comp_basis)
         self.qsci_energy_history.append(val_qsci)
+        termination_reason = "iteration_limit"
         for itr in range(1, self.iter_max + 1):
             print(f"iteration: {itr}")
             grad_vals = np.zeros(len(self.pool), dtype=float)
@@ -364,22 +367,28 @@ class Solver:
                     if len(precise_grad_vals.keys()) >= self.num_precise_gradient:
                         break
                 # print(precise_grad_vals)
-                sorted_keys = sorted(precise_grad_vals.keys(), key=lambda x: abs(precise_grad_vals[x]), reverse=True)
-                # print(len(sorted_keys),self.num_precise_gradient)
-                # assert len(sorted_keys) == self.num_precise_gradient
-
                 # select generator whose abs. gradient is second largest when same generator is selected twice in a row
-                if self.check_duplicate:
-                    if (len(self.operator_index_history) >= 1 and len(sorted_keys) >= 2) and \
-                            (sorted_keys[0] == self.operator_index_history[-1]):
-                        largest_index: int = sorted_keys[1]
-                        print("selected second largest gradient")
-                        self.ignored_gen_inx.append(sorted_keys[0])
-                        print(f"index {sorted_keys[0]} added to ignored list")
-                    else:
-                        largest_index: int = sorted_keys[0]
-                else:
-                    largest_index = sorted_indices[0]
+                previous_index = (
+                    self.operator_index_history[-1]
+                    if self.operator_index_history
+                    else None
+                )
+                largest_index, ignored_duplicate = select_precise_gradient_index(
+                    precise_grad_vals,
+                    previous_index,
+                    self.check_duplicate,
+                )
+                if largest_index is None:
+                    termination_reason = "operator_pool_exhausted"
+                    print(
+                        "no selectable generator remains; "
+                        "terminating with current best energy"
+                    )
+                    break
+                if ignored_duplicate is not None:
+                    print("selected second largest gradient")
+                    self.ignored_gen_inx.append(ignored_duplicate)
+                    print(f"index {ignored_duplicate} added to ignored list")
                 grad_vals = precise_grad_vals.values()
                 print(
                     f"new generator: {str(self.pool[largest_index]).split('*')}, index: {largest_index} "
@@ -503,6 +512,7 @@ class Solver:
             ):
                 self.num_converged += 1
                 if self.num_converged == self.max_num_converged:
+                    termination_reason = "energy_tolerance"
                     break
                 else:
                     continue
@@ -522,6 +532,7 @@ class Solver:
             "best_energy": best_energy,
             "iterations_completed": len(self.opt_param_value_history),
             "active_param_count": len(self.param_values),
+            "termination_reason": termination_reason,
         })
         return best_energy
 

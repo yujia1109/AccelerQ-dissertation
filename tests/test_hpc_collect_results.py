@@ -57,7 +57,11 @@ class StrictCompleteBlockTests(unittest.TestCase):
             task_dir.mkdir(parents=True)
             payload = {
                 "status": "completed",
-                "summary": {"best_energy": -1.25, "final_energy": -1.2},
+                "summary": {
+                    "best_energy": -1.25,
+                    "final_energy": -1.2,
+                    "termination_reason": "energy_tolerance",
+                },
             }
             if status_mutator is not None:
                 status_mutator(row, payload)
@@ -82,6 +86,7 @@ class StrictCompleteBlockTests(unittest.TestCase):
     def test_fully_locked_finite_block_is_strict(self) -> None:
         block = self.collect()
         self.assertEqual(block["strict_complete"], "True")
+        self.assertEqual(block["fixed_termination_reason"], "energy_tolerance")
 
     def test_any_lock_mismatch_is_not_strict(self) -> None:
         for field in (

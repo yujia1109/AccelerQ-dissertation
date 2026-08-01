@@ -79,6 +79,7 @@ def main() -> None:
             "final_energy": summary.get("final_energy", ""),
             "iterations_completed": summary.get("iterations_completed", ""),
             "active_param_count": summary.get("active_param_count", ""),
+            "termination_reason": summary.get("termination_reason", ""),
             "terms_before_compression": payload.get("terms_before_compression", ""),
             "terms_after_compression": payload.get("terms_after_compression", ""),
             "config_sha256": task["config_sha256"],
@@ -170,6 +171,9 @@ def main() -> None:
             block[f"{mode}_final_energy"] = row.get("final_energy", "")
             block[f"{mode}_iterations"] = row.get("iterations_completed", "")
             block[f"{mode}_active_params"] = row.get("active_param_count", "")
+            block[f"{mode}_termination_reason"] = row.get(
+                "termination_reason", ""
+            )
         blocks.append(block)
 
     block_fields = list(blocks[0]) if blocks else []
